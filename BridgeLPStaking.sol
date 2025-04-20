@@ -59,6 +59,7 @@ contract BridgeLPStaking is ReentrancyGuard, Ownable {
         bytes32 txHash
     ) external nonReentrant onlyOwner {
         require(IERC20(token).balanceOf(address(this)) >= amount, "Insufficient bridge balance");
+        require(!processedTx[txHash], "Already processed transaction");
         
         processedTx[txHash] = true;
         IERC20(token).transfer(user, amount);
@@ -108,6 +109,8 @@ contract BridgeLPStaking is ReentrancyGuard, Ownable {
         }
 
         uint256 sendingAmount = userInfo[token][msg.sender].amount + userInfo[token][msg.sender].accumulatedRewards;
+        emit Withdrawn(msg.sender, token, userInfo[token][msg.sender].amount, userInfo[token][msg.sender].accumulatedRewards);
+        totalStaked[token] -= userInfo[token][msg.sender].amount;
         userInfo[token][msg.sender].amount = 0;
         userInfo[token][msg.sender].accumulatedRewards = 0;
         userInfo[token][msg.sender].previous = address(0);

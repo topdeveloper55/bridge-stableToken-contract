@@ -10,11 +10,10 @@ interface IBridgeLPStaking {
 }
 
 contract StableBridge is ReentrancyGuard, Ownable {
+    uint256 public constant FEE_RATE = 3;  // 3%
     uint256 public minAmount;
     uint256 public uniqueID;
     
-    // Supported stablecoins
-    mapping(address => bool) public supportedTokens;
     // Token balances held in bridge
     mapping(uint256 => bytes32) public lockedTxHash;
     
@@ -22,9 +21,8 @@ contract StableBridge is ReentrancyGuard, Ownable {
         address indexed user,
         address indexed token,
         uint256 amount,
-        uint256 fee,
-        uniqueID,
-        bytes32 indexed transactionHash
+        uint256 id,
+        bytes32 indexed txHash
     );
     
     constructor(address _stakingPool, uint256 _minAmount) {
@@ -33,34 +31,24 @@ contract StableBridge is ReentrancyGuard, Ownable {
     }
     
     function lockTokens(address token, uint256 amount) external nonReentrant {
-        require(supportedTokens[token], "Token not supported");
         require(amount > minAmount, "Amount must be greater than minimum amount");
         
         // Transfer tokens from user
         IERC20(token).transferFrom(msg.sender, address(this), amount);
         IERC20(token).transfer(stakingPool, amount);
+        IBridgeLPStaking(stakingPool).addFee(token, amount * FEE_RATE / 100);
         
-        lockedBalances[token] += amountAfterFee;
         uniqueID += 1;
         
         bytes32 txHash = keccak256(abi.encodePacked(
             msg.sender,
             token,
-            amountAfterFee,
+            amount,
             block.timestamp,
             uniqueID
         ));
         
-        emit TokensLocked(msg.sender, token, amountAfterFee, fee, uniqueID, txHash);
-    }
-    
-    // Admin functions
-    function addSupportedToken(address token) external onlyOwner {
-        supportedTokens[token] = true;
-    }
-    
-    function removeSupportedToken(address token) external onlyOwner {
-        supportedTokens[token] = false;
+        emit TokensLocked(msg.sender, token, amount, uniqueID, txHash);
     }
     
     function setStakingPool(address _stakingPool) external onlyOwner {

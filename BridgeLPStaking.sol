@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
@@ -14,7 +14,7 @@ contract BridgeLPStaking is ReentrancyGuard, Ownable {
     }
     // minimum stake amount
     uint256 public minAmount;
-    address public bridgeContract;
+    uint256 public feeRate = 30; // 3%
     mapping(address => uint256) public ownerProfit;
 
     // first/last liquidation provider's address
@@ -33,13 +33,13 @@ contract BridgeLPStaking is ReentrancyGuard, Ownable {
     event Staked(address indexed user, address token, uint256 amount);
     event Withdrawn(address indexed user, address token, uint256 amount, uint256 reward);
     event TokensReleased(
-        address indexed user,
+        address indexed to,
         address token,
-        uint256 amount,
+        uint256 amountAfterFee,
         bytes32 indexed txHash
     );
 
-    constructor(uint256 _minAmount) {
+    constructor(uint256 _minAmount) Ownable(_msgSender()) {
         minAmount = _minAmount;
     }
 
@@ -50,32 +50,33 @@ contract BridgeLPStaking is ReentrancyGuard, Ownable {
         uint256 amount,
         bytes32 txHash
     ) external nonReentrant onlyOwner {
-        require(IERC20(token).balanceOf(address(this)) >= amount, "Insufficient bridge balance");
+        uint256 amountAfterFee = amount - amount * feeRate / 1000;
+
+        require(IERC20(token).balanceOf(address(this)) >= amountAfterFee, "Insufficient bridge balance");
         require(!processedTx[txHash], "Already processed transaction");
         
         processedTx[txHash] = true;
-        IERC20(token).transfer(user, amount);
+        totalFee[token] += (amount * feeRate / 1000);
+        IERC20(token).transfer(user, amountAfterFee);
         
-        emit TokensReleased(user, token, amount, transactionHash);
+        emit TokensReleased(user, token, amountAfterFee, txHash);
     }
     
     // Stake stablecoins to provide liquidity
-    function stake(address token, uint256 amount) external nonReentrant updateReward(token, lastUser) {
+    function stake(address token, uint256 amount) external nonReentrant {
         require(amount > minAmount, "Amount should be greater than minimum amount");
-        updateReward(token, lastUser);
-        ownerProfit[tokne] += totalFee[token] / 2;
-        totalFee[token] = 0;
+        updateReward(token, lastUser[token]);
 
         IERC20(token).transferFrom(msg.sender, address(this), amount);
         
         if(userInfo[token][msg.sender].amount == 0) {
-            if(firstUser == address(0)) {
-                firstUser = msg.sender;
-                lastUser = msg.sender;
+            if(firstUser[token] == address(0)) {
+                firstUser[token] = msg.sender;
+                lastUser[token] = msg.sender;
             } else {
-                userInfo[token][msg.sender].previous = lastUser;
-                userInfo[token][lastUser].next = msg.sender;
-                lastUser = msg.sender;
+                userInfo[token][msg.sender].previous = lastUser[token];
+                userInfo[token][lastUser[token]].next = msg.sender;
+                lastUser[token] = msg.sender;
             }
         }
         userInfo[token][msg.sender].amount += amount;
@@ -86,51 +87,53 @@ contract BridgeLPStaking is ReentrancyGuard, Ownable {
 
     // Withdraw staked tokens
     function withdraw(address token) external nonReentrant {
+        updateReward(token, lastUser[token]);
+
+        uint256 sendingAmount = userInfo[token][msg.sender].amount + userInfo[token][msg.sender].accumulatedRewards;
+
         require(userInfo[token][msg.sender].amount > 0, "No tokens staked");
-        require(IERC20(token).balanceOf(address(this)) >= userInfo[token][msg.sender].amount, "Insufficient balance");
-        updateReward(token, lastUser);
-        ownerProfit[tokne] += totalFee[token] / 2;
-        totalFee[token] = 0; 
+        require(IERC20(token).balanceOf(address(this)) >= sendingAmount, "Insufficient balance"); 
         
         address previous = userInfo[token][msg.sender].previous;
         address next = userInfo[token][msg.sender].next;
         if(previous == address(0)) {
-            firstUser = next;
+            firstUser[token] = next;
         } else {
             userInfo[token][previous].next = next;
         }
 
         if(next == address(0)) {
-            lastUser = previous;
+            lastUser[token] = previous;
         } else {
             userInfo[token][next].previous = previous;
         }
 
-        uint256 sendingAmount = userInfo[token][msg.sender].amount + userInfo[token][msg.sender].accumulatedRewards;
         emit Withdrawn(msg.sender, token, userInfo[token][msg.sender].amount, userInfo[token][msg.sender].accumulatedRewards);
-        totalStaked[token] -= userInfo[token][msg.sender].amount;
 
+        totalStaked[token] -= userInfo[token][msg.sender].amount;
         userInfo[token][msg.sender].amount = 0;
         userInfo[token][msg.sender].accumulatedRewards = 0;
         userInfo[token][msg.sender].previous = address(0);
         userInfo[token][msg.sender].next = address(0);
-        totalFee[token] = 0;
 
         IERC20(token).transfer(msg.sender, sendingAmount);
     }
 
     // update rewards each time user stake or withdraw
-    function updateReward(address token, address user) {
+    function updateReward(address token, address user) private {
         if(user != address(0)) {
             userInfo[token][user].accumulatedRewards += currentRewards(token, user);
             updateReward(token, userInfo[token][user].previous);
+        } else {
+            ownerProfit[token] += totalFee[token] / 2;
+            totalFee[token] = 0;
         }
     }
 
-    // Set Bridge Contract address
-    function setBridge(address bridge) external onlyOwner {
-        bridgeContract = bridge;
-    }
+    // Set fee rate
+    function setFeeRate(uint256 _feeRate) external onlyOwner {
+        feeRate = _feeRate;
+    } 
 
     // Claim owner rewards
     function claimOwnerRewards(address token) external onlyOwner {
@@ -139,12 +142,6 @@ contract BridgeLPStaking is ReentrancyGuard, Ownable {
         uint256 amount = ownerProfit[token];
         ownerProfit[token] = 0;
         IERC20(token).transfer(msg.sender, amount);
-    }
-
-    // Add fee to total fee
-    function addFee(address token, uint256 amount) external {
-        require(msg.sender == bridgeContract, "Only Bridge Contract can call this function");
-        totalFee[token] += amount;
     }
 
     // Calculate current rewards

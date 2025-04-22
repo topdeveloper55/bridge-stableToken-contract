@@ -1,0 +1,27 @@
+{
+  "name": "bridge_contract",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/topdeveloper55/bridge_contract.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/topdeveloper55/bridge_contract/issues"
+  },
+  "homepage": "https://github.com/topdeveloper55/bridge_contract#readme",
+  "description": "",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.23.0"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^4.0.0"
+  }
+}

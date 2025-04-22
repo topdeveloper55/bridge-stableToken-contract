@@ -13,7 +13,7 @@ contract BridgeLPStaking is ReentrancyGuard, Ownable {
         uint256 accumulatedRewards;
     }
     // minimum stake amount
-    uint256 public minAmount;
+    mapping(address => uint256) public minAmount;
     uint256 public feeRate = 30; // 3%
     mapping(address => uint256) public ownerProfit;
 
@@ -39,8 +39,7 @@ contract BridgeLPStaking is ReentrancyGuard, Ownable {
         bytes32 indexed txHash
     );
 
-    constructor(uint256 _minAmount) Ownable(_msgSender()) {
-        minAmount = _minAmount;
+    constructor() Ownable(_msgSender()) {
     }
 
     // Relase stable coin to receiver address
@@ -64,7 +63,7 @@ contract BridgeLPStaking is ReentrancyGuard, Ownable {
     
     // Stake stablecoins to provide liquidity
     function stake(address token, uint256 amount) external nonReentrant {
-        require(amount > minAmount, "Amount should be greater than minimum amount");
+        require(amount > minAmount[token], "Amount should be greater than minimum amount");
         updateReward(token, lastUser[token]);
 
         IERC20(token).transferFrom(msg.sender, address(this), amount);
@@ -147,5 +146,10 @@ contract BridgeLPStaking is ReentrancyGuard, Ownable {
     // Calculate current rewards
     function currentRewards(address token, address user) public view returns (uint256) {
         return (totalFee[token] / 2) * userInfo[token][user].amount / totalStaked[token];
+    }
+
+    //Set the minimum staking amount
+    function setMinAmount(address token, uint256 _minAmount) external onlyOwner {
+        minAmount[token] = _minAmount;
     }
 }
